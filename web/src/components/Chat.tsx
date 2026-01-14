@@ -1,6 +1,8 @@
-import { useState, useRef, useEffect } from 'react'
-import ReactMarkdown from 'react-markdown'
+import { useState, useRef, useEffect, type CSSProperties } from 'react'
+import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
@@ -19,6 +21,33 @@ interface Conversation {
   id: number
   title: string
   created_at: string
+}
+
+const markdownComponents: Components = {
+  code({ className, children, ...props }) {
+    const match = /language-(\w+)/.exec(className || '')
+    const code = String(children).replace(/\n$/, '')
+
+    if (match) {
+      return (
+        <SyntaxHighlighter
+          style={oneDark as Record<string, CSSProperties>}
+          language={match[1]}
+          PreTag="div"
+          className="rounded-md overflow-x-auto"
+          customStyle={{ margin: 0, padding: '0.75rem' }}
+        >
+          {code}
+        </SyntaxHighlighter>
+      )
+    }
+
+    return (
+      <code className={className} {...props}>
+        {children}
+      </code>
+    )
+  },
 }
 
 export function Chat() {
@@ -105,6 +134,7 @@ export function Chat() {
       const decoder = new TextDecoder()
       let fullContent = ''
       let newConversationId = conversationId
+      let buffer = ''
 
       if (!reader) {
         throw new Error('无法读取响应流')
@@ -114,13 +144,15 @@ export function Chat() {
         const { done, value } = await reader.read()
         if (done) break
 
-        const chunk = decoder.decode(value)
-        const lines = chunk.split('\n')
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
 
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
+          const trimmedLine = line.trimEnd()
+          if (trimmedLine.startsWith('data: ')) {
             try {
-              const data = JSON.parse(line.slice(6))
+              const data = JSON.parse(trimmedLine.slice(6))
 
               if (data.type === 'start' && data.conversation_id) {
                 newConversationId = data.conversation_id
@@ -244,8 +276,8 @@ export function Chat() {
                       )}
                     >
                       {msg.role === 'assistant' ? (
-                        <div className="prose prose-sm max-w-none prose-pre:bg-gray-800 prose-pre:text-gray-100 prose-code:text-pink-600 prose-code:bg-gray-100 prose-code:px-1 prose-code:rounded">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        <div className="prose prose-sm max-w-none prose-code:text-pink-600 prose-code:bg-gray-200 prose-code:px-1 prose-code:rounded prose-pre:bg-gray-900 prose-pre:text-gray-100 prose-pre:px-3 prose-pre:py-2 prose-pre:rounded-md prose-pre:overflow-x-auto prose-pre:whitespace-pre-wrap prose-ul:my-2 prose-ol:my-2 prose-li:my-1 prose-hr:my-4">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
                             {msg.content}
                           </ReactMarkdown>
                         </div>
@@ -259,8 +291,8 @@ export function Chat() {
                 {streamingContent && (
                   <div className="flex justify-start">
                     <div className="max-w-[70%] rounded-lg px-4 py-2 bg-gray-100 text-gray-900">
-                      <div className="prose prose-sm max-w-none prose-pre:bg-gray-800 prose-pre:text-gray-100 prose-code:text-pink-600 prose-code:bg-gray-100 prose-code:px-1 prose-code:rounded">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      <div className="prose prose-sm max-w-none prose-code:text-pink-600 prose-code:bg-gray-200 prose-code:px-1 prose-code:rounded prose-pre:bg-gray-900 prose-pre:text-gray-100 prose-pre:px-3 prose-pre:py-2 prose-pre:rounded-md prose-pre:overflow-x-auto prose-pre:whitespace-pre-wrap prose-ul:my-2 prose-ol:my-2 prose-li:my-1 prose-hr:my-4">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
                           {streamingContent}
                         </ReactMarkdown>
                       </div>

@@ -214,9 +214,13 @@ func (s *AIService) ChatStream(ctx context.Context, conversationID uint, userMes
 	_, err := llm.GenerateContent(ctx, chatMessages,
 		llms.WithStreamingFunc(func(ctx context.Context, chunk []byte) error {
 			text := string(chunk)
-			fullResponse.WriteString(text)
-			if callbacks.OnContent != nil {
-				return callbacks.OnContent(text)
+			// 过滤元数据
+			filteredText := filterStreamChunk(text)
+			if filteredText != "" {
+				fullResponse.WriteString(filteredText)
+				if callbacks.OnContent != nil {
+					return callbacks.OnContent(filteredText)
+				}
 			}
 			return nil
 		}),
@@ -260,4 +264,49 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return string(runes[:maxLen]) + "..."
+}
+
+// filterStreamChunk 过滤流式输出中的元数据
+// 某些中转API会返回类似 {"value":"","field":"reasoning_content"} 的元数据
+func filterStreamChunk(chunk string) string {
+	if chunk == "" {
+		return ""
+	}
+
+	// 注意：不要 TrimSpace，会破坏 markdown（尤其是换行/缩进/代码块）。
+	// 仅用于识别元数据时做轻量的前导空白裁剪。
+	trimmedForDetect := strings.TrimLeft(chunk, " \t\r\n")
+
+	// 检查是否以 { 开头，可能是JSON元数据
+	if strings.HasPrefix(trimmedForDetect, "{") {
+		// 尝试找到JSON结束位置
+		braceCount := 0
+		jsonEnd := -1
+		for i, c := range trimmedForDetect {
+			if c == '{' {
+				braceCount++
+			} else if c == '}' {
+				braceCount--
+				if braceCount == 0 {
+					jsonEnd = i
+					break
+				}
+			}
+		}
+
+		if jsonEnd > 0 {
+			jsonPart := trimmedForDetect[:jsonEnd+1]
+			// 尝试解析JSON
+			var metadata map[string]interface{}
+			if err := json.Unmarshal([]byte(jsonPart), &metadata); err == nil {
+				// 检查是否是元数据（包含field字段）
+				if _, hasField := metadata["field"]; hasField {
+					// 返回JSON之后的内容
+					return strings.TrimLeft(trimmedForDetect[jsonEnd+1:], " \t\r\n")
+				}
+			}
+		}
+	}
+
+	return chunk
 }
